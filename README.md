@@ -8,8 +8,6 @@ continuous clock).
 
 - VC0: 1920x1080 UYVY -> /dev/video0
 - VC1: 640x480 (default) or 320x240 (`qvga`) UYVY -> /dev/video2
-- Automatic FPGA reset (CRESET_N pulse) on every stream start
-  (requires camera CRESET_N wired to connector pin 17 / IO0)
 
 Distributed as source + DKMS: the module is rebuilt automatically on the
 target for the running kernel, including after kernel upgrades
@@ -46,10 +44,16 @@ Reboot for changes to take effect.
 
 ## dtoverlay options
 
-| option | description                      | default |
-| ------ | -------------------------------- | ------- |
-| `cam0` | Use CAM0 port instead of CAM1    | CAM1    |
-| `qvga` | VC1 outputs 320x240 (QVGA fw)    | 640x480 |
+| default | description                     |
+| ------- | ------------------------------- |
+|   CAM1  | Use CAM1 port    		    |
+|   VGA   | VC1 outputs 640x480 (VGA fw)    |
+
+
+| option | description                      |
+| ------ | -------------------------------- |
+| `cam0` | Use CAM0 port instead of CAM1    |
+| `qvga` | VC1 outputs 320x240 (QVGA fw)    |
 
 Options can be combined: `dtoverlay=canlab-downstream,cam0,qvga`
 
@@ -81,11 +85,6 @@ gst-launch-1.0 \
   v4l2src device=/dev/video0 ! video/x-raw,format=UYVY,width=1920,height=1080 ! xvimagesink \
   v4l2src device=/dev/video2 ! video/x-raw,format=UYVY,width=640,height=480  ! xvimagesink
 ```
-
-The driver generates a CRESET_N reset pulse at stream start, visible in
-`dmesg` as `generating CRESET_N reset pulse`. For camera units without
-the CRESET_N wiring fix, fall back to: start the streamer first, then
-apply camera power.
 
 ## Uninstall
 
