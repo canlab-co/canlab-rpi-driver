@@ -22,7 +22,7 @@
  * Hence two image VCs must land on ch0 and ch2, which forces a filler source
  * pad (pad1) to occupy the ch1 slot.
  *
- * 4 D-PHY data lanes, CONTINUOUS clock, 150 MHz link (300 Mbps/lane).
+ * 4 D-PHY data lanes, CONTINUOUS clock, 500 MHz link (1000 Mbps/lane).
  *
  * Per-channel VC/DT is read by csi2_get_vc_dt() from this driver's
  * pad::get_frame_desc (exactly ONE CSI-2 entry per source pad). The source
@@ -62,26 +62,16 @@
 #define CANLAB_NUM_PADS		3
 
 #define CANLAB_NUM_DATA_LANES		4
-#define CANLAB_DEFAULT_LINK_FREQ_HZ	150000000ULL	/* clock lane = 150 MHz */
+#define CANLAB_DEFAULT_LINK_FREQ_HZ	500000000ULL	/* clock lane = 500 MHz */
 
 #define CANLAB_MBUS_CODE	MEDIA_BUS_FMT_UYVY8_1X16	/* UYVY, CSI-2 DT 0x1e */
 #define CANLAB_BPP		16
 
 /*
- * Source is an Efinix Titanium Ti60 FPGA driving the CSI-2 output. The reset
- * line (cam1_reg supply / reset-gpios) is wired to the FPGA CRESET_N (active-
- * low configuration reset). Timing from the Ti60 Data Sheet:
- *   - tCRESET_N : min CRESET_N low pulse to trigger re-configuration = 320 ns
- *                 (Table 58). Held low while stopped, so trivially met.
- *   - tUSER     : min duration after CDONE high before user mode = 25 us
- *                 (Table 58). Keep the interface in reset until it elapses.
- * The CRESET_N-high -> CDONE-high configuration-load time is NOT specified in
- * the data sheet (depends on bitstream size and SPI flash speed), so a
- * conservative fixed delay is used.
+ * Reset = the "vdd" supply (CAM IO0 / cam1_reg) wired to the FPGA i_arstn
+ * (active-low): enable -> run, disable -> hold in reset.
  */
-#define CANLAB_TCRESET_N_MIN_NS		320	/* Ti60 DS Table 58: tCRESET_N */
-#define CANLAB_TUSER_US			25	/* Ti60 DS Table 58: tUSER    */
-#define CANLAB_CONFIG_LOAD_MS		120	/* 추정: CRESET_N high -> user mode */
+#define CANLAB_RESET_RECOVERY_MS	120	/* i_arstn high -> design ready */
 
 #define CANLAB_MIN_WIDTH	64u
 #define CANLAB_MIN_HEIGHT	64u
@@ -117,8 +107,8 @@ struct canlab {
 	struct v4l2_ctrl_handler ctrls;
 
 	struct clk *xclk;			/* optional */
-	struct gpio_desc *reset_gpio;		/* optional, active-low */
-	struct regulator *supply;		/* optional; CAM IO0 (cam1_reg) drives FPGA CRESET_N */
+	struct gpio_desc *reset_gpio;		/* optional secondary reset */
+	struct regulator *supply;		/* CAM IO0 (cam1_reg) = i_arstn reset line */
 
 	unsigned int num_data_lanes;
 	unsigned int bus_flags;			/* V4L2_MBUS_CSI2_* */
@@ -127,7 +117,7 @@ struct canlab {
 
 	struct mutex lock;			/* protects streaming state + HW */
 	bool streaming;
-	bool pulse_done;			/* CRESET_N pulse done by runtime resume */
+	bool pulse_done;			/* i_arstn pulse done by runtime resume */
 
 	/* Per-instance copy of canlab_pad_cfg_template; VC1 entry may be
 	 * overridden to QVGA dimensions based on the "canlab,vc1-qvga"
@@ -170,7 +160,6 @@ static int canlab_start(struct canlab *c)
 
 static void canlab_stop(struct canlab *c)
 {
-	/* TODO: 데이터시트 확인 필요 — 전송 중지 시퀀스. */
 	dev_dbg(&c->client->dev, "stop\n");
 }
 
@@ -179,20 +168,18 @@ static void canlab_stop(struct canlab *c)
  * ------------------------------------------------------------------------- */
 
 /*
- * Generate a genuine CRESET_N reset PULSE rather than only deasserting it.
- * If the camera is already powered and running, CRESET_N sits high
- * (pull-up / FPGA in user mode), so merely driving it high again produces
- * no edge: the Ti60 never re-configures, the clock lane never performs an
- * LP->HS entry, and the receiver's D-PHY FSM has nothing to lock onto.
- * Force the line low first, hold it >= tCRESET_N, then release it and
- * wait for config load (CDONE) + tUSER before the CSI-2 output is valid.
+ * Generate a genuine i_arstn reset PULSE rather than only deasserting it.
+ * If the camera is already powered and running, i_arstn sits high (FPGA
+ * design already up), so merely driving it high again produces no edge:
+ * the design's reset logic (and any dependent PLL relock / CSI-2
+ * clock-lane LP->HS entry) never re-triggers. Force the line low first,
+ * hold it briefly, then release it and wait for PLL relock + design
+ * bring-up before the CSI-2 output is valid.
  */
 static int canlab_reset_pulse(struct canlab *c)
 {
 	struct device *dev = &c->client->dev;
 	int ret;
-
-	//dev_info(dev, "generating CRESET_N reset pulse\n");
 
 	if (c->supply) {
 		/*
@@ -211,7 +198,7 @@ static int canlab_reset_pulse(struct canlab *c)
 	}
 	gpiod_set_value_cansleep(c->reset_gpio, 1);	/* assert reset */
 
-	usleep_range(10, 20);	/* >> tCRESET_N (320 ns) */
+	usleep_range(10, 20);	/* brief assert, well beyond any minimum reset pulse width */
 
 	if (c->supply) {
 		ret = regulator_enable(c->supply);
@@ -222,8 +209,7 @@ static int canlab_reset_pulse(struct canlab *c)
 	}
 	gpiod_set_value_cansleep(c->reset_gpio, 0);	/* release reset */
 
-	msleep(CANLAB_CONFIG_LOAD_MS);
-	usleep_range(CANLAB_TUSER_US, CANLAB_TUSER_US * 2);
+	msleep(CANLAB_RESET_RECOVERY_MS);
 
 	return 0;
 }
@@ -256,12 +242,9 @@ static int canlab_power_off(struct device *dev)
 	struct canlab *c = to_canlab(sd);
 
 	/*
-	 * Assert the FPGA CRESET_N to hold the Ti60 in configuration reset so it
-	 * stops driving the CSI-2 output (D-PHY -> LP-11). Held until the next
-	 * stream start, which far exceeds the tCRESET_N (320 ns) minimum.
+	 * Assert i_arstn to hold the FPGA design in reset so it stops driving
+	 * the CSI-2 output (D-PHY -> LP-11). Held until the next stream start.
 	 */
-	//dev_info(dev, "power_off: asserting CRESET_N\n");
-
 	gpiod_set_value_cansleep(c->reset_gpio, 1);
 	if (c->supply)
 		regulator_disable(c->supply);
@@ -378,10 +361,9 @@ static int canlab_s_stream(struct v4l2_subdev *sd, int enable)
 		 * reference leaked or suspend never ran), the resume callback
 		 * did not execute and no reset pulse was generated. Force one
 		 * here so every stream start is guaranteed exactly one
-		 * CRESET_N pulse regardless of runtime PM state.
+		 * i_arstn pulse regardless of runtime PM state.
 		 */
 		if (!c->pulse_done) {
-			//dev_info(dev, "s_stream(1): runtime PM already active, forcing reset pulse\n");
 			ret = canlab_reset_pulse(c);
 			if (ret) {
 				pm_runtime_put(dev);
@@ -562,13 +544,7 @@ static int canlab_probe(struct i2c_client *client)
 		goto err_mutex;
 	}
 
-	/*
-	 * Optional supply: on RPi the CAM connector IO0 line (cam1_reg /
-	 * cam0_reg = RP1 GPIO 46 / 34) is modelled as a fixed regulator. We
-	 * wire it to the FPGA CRESET_N: enable -> IO0 high -> FPGA runs;
-	 * disable -> IO0 low -> FPGA held in configuration reset. If no supply
-	 * is wired, fall back to the optional reset-gpios above.
-	 */
+	/* "vdd" supply (CAM IO0 / cam1_reg) = the i_arstn reset line. */
 	c->supply = devm_regulator_get_optional(dev, "vdd");
 	if (IS_ERR(c->supply)) {
 		ret = PTR_ERR(c->supply);
