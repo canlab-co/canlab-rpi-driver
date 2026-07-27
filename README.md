@@ -1,4 +1,4 @@
-# fpv-rpi-driver
+# canlab-rpi-driver
 
 # CANLAB dual-VC camera driver for Raspberry Pi 5
 
@@ -44,10 +44,10 @@ Reboot for changes to take effect.
 
 ## dtoverlay options
 
-| default | description                     |
-| ------- | ------------------------------- |
-|   CAM1  | Use CAM1 port    		    |
-|   VGA   | VC1 outputs 640x480 (VGA fw)    |
+|  default | description                     |
+| -------  | ------------------------------- |
+|  `CAM1`  | Use CAM1 port    		     |
+|  `VGA `  | VC1 outputs 640x480 (VGA fw)    |
 
 
 | option | description                      |
@@ -78,12 +78,18 @@ dmesg | grep canlab
 
 ## Streaming
 
+GStreamer is not installed by default on Raspberry Pi OS. Install it first:
+
+```
+sudo apt install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+```
+
 Both channels must be started together:
 
 ```
 gst-launch-1.0 \
-  v4l2src device=/dev/video0 ! video/x-raw,format=UYVY,width=1920,height=1080 ! xvimagesink \
-  v4l2src device=/dev/video2 ! video/x-raw,format=UYVY,width=640,height=480  ! xvimagesink
+  v4l2src device=/dev/video0 ! video/x-raw,format=UYVY,width=1920,height=1080 ! xvimagesink sync=false \
+  v4l2src device=/dev/video2 ! video/x-raw,format=UYVY,width=640,height=480  ! xvimagesink sync=false
 ```
 
 ## Uninstall

@@ -192,7 +192,7 @@ static int canlab_reset_pulse(struct canlab *c)
 	struct device *dev = &c->client->dev;
 	int ret;
 
-	dev_info(dev, "generating CRESET_N reset pulse\n");
+	//dev_info(dev, "generating CRESET_N reset pulse\n");
 
 	if (c->supply) {
 		/*
@@ -260,7 +260,7 @@ static int canlab_power_off(struct device *dev)
 	 * stops driving the CSI-2 output (D-PHY -> LP-11). Held until the next
 	 * stream start, which far exceeds the tCRESET_N (320 ns) minimum.
 	 */
-	dev_info(dev, "power_off: asserting CRESET_N\n");
+	//dev_info(dev, "power_off: asserting CRESET_N\n");
 
 	gpiod_set_value_cansleep(c->reset_gpio, 1);
 	if (c->supply)
@@ -365,7 +365,7 @@ static int canlab_s_stream(struct v4l2_subdev *sd, int enable)
 
 	if (enable) {
 		if (c->streaming) {
-			dev_info(dev, "s_stream(1): duplicate enable ignored\n");
+			//dev_info(dev, "s_stream(1): duplicate enable ignored\n");
 			goto out;
 		}
 
@@ -381,7 +381,7 @@ static int canlab_s_stream(struct v4l2_subdev *sd, int enable)
 		 * CRESET_N pulse regardless of runtime PM state.
 		 */
 		if (!c->pulse_done) {
-			dev_info(dev, "s_stream(1): runtime PM already active, forcing reset pulse\n");
+			//dev_info(dev, "s_stream(1): runtime PM already active, forcing reset pulse\n");
 			ret = canlab_reset_pulse(c);
 			if (ret) {
 				pm_runtime_put(dev);
@@ -396,18 +396,18 @@ static int canlab_s_stream(struct v4l2_subdev *sd, int enable)
 			goto out;
 		}
 		c->streaming = true;
-		dev_info(dev, "s_stream(1): streaming started\n");
+		//dev_info(dev, "s_stream(1): streaming started\n");
 	} else {
 		if (!c->streaming) {
-			dev_info(dev, "s_stream(0): duplicate disable ignored\n");
+			//dev_info(dev, "s_stream(0): duplicate disable ignored\n");
 			goto out;
 		}
 
 		canlab_stop(c);
 		c->streaming = false;
 		pm_runtime_put_sync(dev);
-		dev_info(dev, "s_stream(0): stopped, runtime status now %s\n",
-			 pm_runtime_status_suspended(dev) ? "suspended" : "active");
+		/*dev_info(dev, "s_stream(0): stopped, runtime status now %s\n",
+			 pm_runtime_status_suspended(dev) ? "suspended" : "active");*/
 	}
 
 out:
