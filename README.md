@@ -18,7 +18,8 @@ target for the running kernel, including after kernel upgrades
 ```
 sudo apt install -y git
 sudo apt install -y --no-install-recommends dkms
-git clone <this-repo>
+cd ~
+git clone https://github.com/canlab-co/canlab-rpi-driver.git
 cd canlab-rpi-driver/
 sudo ./setup.sh
 ```
@@ -44,10 +45,10 @@ Reboot for changes to take effect.
 
 ## dtoverlay options
 
-|  default | description                     |
-| -------  | ------------------------------- |
-|  `CAM1`  | Use CAM1 port    		     |
-|  `VGA `  | VC1 outputs 640x480 (VGA fw)    |
+| default | description                     |
+| ------- | ------------------------------- |
+| `CAM1`  | Use CAM1 port    		    |
+| `VGA`   | VC1 outputs 640x480 (VGA fw)    |
 
 
 | option | description                      |
@@ -88,8 +89,8 @@ Both channels must be started together:
 
 ```
 gst-launch-1.0 \
-  v4l2src device=/dev/video0 ! video/x-raw,format=UYVY,width=1920,height=1080 ! xvimagesink sync=false \
-  v4l2src device=/dev/video2 ! video/x-raw,format=UYVY,width=640,height=480  ! xvimagesink sync=false
+  v4l2src device=/dev/video0 ! video/x-raw,format=UYVY,width=1920,height=1080,pixelformat=UYVY ! xvimagesink sync=false \
+  v4l2src device=/dev/video2 ! video/x-raw,format=UYVY,width=640,height=480,pixelformat=UYVY  ! xvimagesink sync=false
 ```
 
 ## Uninstall
