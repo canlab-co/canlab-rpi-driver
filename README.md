@@ -89,8 +89,8 @@ Both channels must be started together:
 
 ```
 gst-launch-1.0 \
-  v4l2src device=/dev/video0 ! video/x-raw,format=UYVY,width=1920,height=1080,pixelformat=UYVY ! xvimagesink sync=false \
-  v4l2src device=/dev/video2 ! video/x-raw,format=UYVY,width=640,height=480,pixelformat=UYVY  ! xvimagesink sync=false
+  v4l2src device=/dev/video0 ! video/x-raw,width=1920,height=1080,pixelformat=UYVY ! xvimagesink sync=false \
+  v4l2src device=/dev/video2 ! video/x-raw,width=640,height=480,pixelformat=UYVY  ! xvimagesink sync=false
 ```
 
 ## Uninstall
