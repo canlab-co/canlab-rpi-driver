@@ -67,7 +67,7 @@ After boot, configure the media pipeline (links + formats) before
 streaming:
 
 ```
-./setup-dualvc.sh vga
+./setup-dualvc.sh
 ```
 
 - `vga` / `qvga` — VC0 (video0) + VC1 (video2), both channels
