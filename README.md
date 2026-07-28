@@ -67,8 +67,12 @@ After boot, configure the media pipeline (links + formats) before
 streaming:
 
 ```
-./setup-dualvc.sh vga     # or: qvga, or run without args for a prompt
+./setup-dualvc.sh vga
 ```
+
+- `vga` / `qvga` — VC0 (video0) + VC1 (video2), both channels
+- `single` — VC0 only (video0); VC1 stays disabled and works
+  regardless of which overlay (vga/qvga) is currently loaded
 
 Verify the driver probed:
 
@@ -91,6 +95,13 @@ Both channels must be started together:
 gst-launch-1.0 \
   v4l2src device=/dev/video0 ! video/x-raw,width=1920,height=1080,pixelformat=UYVY ! xvimagesink sync=false \
   v4l2src device=/dev/video2 ! video/x-raw,width=640,height=480,pixelformat=UYVY  ! xvimagesink sync=false
+```
+
+With `single` mode, only VC0 is used:
+
+```
+gst-launch-1.0 \
+  v4l2src device=/dev/video0 ! video/x-raw,width=1920,height=1080,pixelformat=UYVY ! xvimagesink sync=false
 ```
 
 ## Uninstall
