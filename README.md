@@ -12,7 +12,7 @@ continuous clock).
 Distributed as source + DKMS: the module is rebuilt automatically on the
 target for the running kernel, including after kernel upgrades
 (`AUTOINSTALL="yes"`), so no per-kernel binary releases are needed.
-
+ 
 ## Install
 
 ```
@@ -23,7 +23,7 @@ git clone https://github.com/canlab-co/canlab-rpi-driver.git
 cd canlab-rpi-driver/
 sudo ./setup.sh
 ```
-
+ 
 ## Boot configuration
 
 Edit `/boot/firmware/config.txt`:
@@ -42,14 +42,20 @@ dtoverlay=canlab-downstream
 ```
 
 Reboot for changes to take effect.
-
+ 
 ## dtoverlay options
 
-| default | description                     |
-| ------- | ------------------------------- |
-| `CAM1`  | Use CAM1 port    		    |
-| `VGA`   | VC1 outputs 640x480 (VGA fw)    |
+### default
+Base overlay with no options — `dtoverlay=canlab-downstream` — uses:
 
+| setting | value                           |
+| ------- | ------------------------------- |
+| port    | Use CAM1 port                   |
+| VC1     | VC1 outputs 640x480 (VGA fw)    |
+
+
+### options
+Add these parameters to change the defaults:
 
 | option | description                      |
 | ------ | -------------------------------- |
@@ -60,7 +66,7 @@ Options can be combined: `dtoverlay=canlab-downstream,cam0,qvga`
 
 The overlay/driver setting must match the firmware actually flashed on
 the camera (VGA vs QVGA firmware variants).
-
+ 
 ## Runtime pipeline setup
 
 After boot, configure the media pipeline (links + formats) before
@@ -69,6 +75,13 @@ streaming:
 ```
 ./setup-dualvc.sh
 ```
+
+Make the script executable before first use:
+
+```
+chmod a+x setup-dualvc.sh
+```
+
 
 - `vga` / `qvga` — VC0 (video0) + VC1 (video2), both channels
 - `single` — VC0 only (video0); VC1 stays disabled and works
@@ -80,7 +93,7 @@ Verify the driver probed:
 dmesg | grep canlab
 # canlab 11-001a: CANLAB(downstream) 2-VC: VC0 1920x1080(pad0/ch0) + VC1 ...
 ```
-
+ 
 ## Streaming
 
 GStreamer is not installed by default on Raspberry Pi OS. Install it first:
