@@ -19,7 +19,7 @@ target for the running kernel, including after kernel upgrades
 sudo apt install -y git
 sudo apt install -y --no-install-recommends dkms
 cd ~
-git clone https://github.com/canlab-co/canlab-rpi-driver.git
+git clone -b release https://github.com/canlab-co/canlab-rpi-driver.git
 cd canlab-rpi-driver/
 sudo ./setup.sh
 ```
