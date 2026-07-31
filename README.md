@@ -69,19 +69,18 @@ the camera (VGA vs QVGA firmware variants).
  
 ## Runtime pipeline setup
 
-After boot, configure the media pipeline (links + formats) before
-streaming:
-
-```
-./setup-dualvc.sh
-```
-
 Make the script executable before first use:
 
 ```
 chmod a+x setup-dualvc.sh
 ```
 
+After boot, configure the media pipeline (links + formats) before
+streaming:
+
+```
+./setup-dualvc.sh
+```
 
 - `vga` / `qvga` — VC0 (video0) + VC1 (video2), both channels
 - `single` — VC0 only (video0); VC1 stays disabled and works
