@@ -71,9 +71,9 @@
 						remote-endpoint = <&csi_ep>;
 						clock-lanes = <0>;
 						data-lanes = <1 2 3 4>;
+						clock-noncontinuous;
 						link-frequencies =
 							/bits/ 64 <500000000>;
-						/* CONTINUOUS clock: no clock-noncontinuous */
 					};
 				};
 			};
