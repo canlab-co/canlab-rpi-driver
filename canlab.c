@@ -71,7 +71,6 @@
  * Reset = the "vdd" supply (CAM IO0 / cam1_reg) wired to the FPGA i_arstn
  * (active-low): enable -> run, disable -> hold in reset.
  */
-#define CANLAB_RESET_RECOVERY_MS	120	/* i_arstn high -> design ready */
 
 #define CANLAB_MIN_WIDTH	64u
 #define CANLAB_MIN_HEIGHT	64u
@@ -117,7 +116,6 @@ struct canlab {
 
 	struct mutex lock;			/* protects streaming state + HW */
 	bool streaming;
-	bool pulse_done;			/* i_arstn pulse done by runtime resume */
 
 	/* Per-instance copy of canlab_pad_cfg_template; VC1 entry may be
 	 * overridden to QVGA dimensions based on the "canlab,vc1-qvga"
@@ -176,83 +174,35 @@ static void canlab_stop(struct canlab *c)
  * hold it briefly, then release it and wait for PLL relock + design
  * bring-up before the CSI-2 output is valid.
  */
-static int canlab_reset_pulse(struct canlab *c)
-{
-	struct device *dev = &c->client->dev;
-	int ret;
-
-	if (c->supply) {
-		/*
-		 * Bring the regulator to a known-enabled state first so the
-		 * disable below really drives the line low (falling edge),
-		 * then re-enable to release reset (rising edge). Net enable
-		 * count over this helper is +1, matching the single
-		 * regulator_disable() in canlab_power_off().
-		 */
-		ret = regulator_enable(c->supply);
-		if (ret) {
-			dev_err(dev, "failed to enable supply: %d\n", ret);
-			return ret;
-		}
-		regulator_disable(c->supply);
-	}
-	gpiod_set_value_cansleep(c->reset_gpio, 1);	/* assert reset */
-
-	usleep_range(10, 20);	/* brief assert, well beyond any minimum reset pulse width */
-
-	if (c->supply) {
-		ret = regulator_enable(c->supply);
-		if (ret) {
-			dev_err(dev, "failed to re-enable supply: %d\n", ret);
-			return ret;
-		}
-	}
-	gpiod_set_value_cansleep(c->reset_gpio, 0);	/* release reset */
-
-	msleep(CANLAB_RESET_RECOVERY_MS);
-
-	return 0;
-}
-
 static int canlab_power_on(struct device *dev)
 {
 	struct v4l2_subdev *sd = dev_get_drvdata(dev);
 	struct canlab *c = to_canlab(sd);
 	int ret;
 
+	/*
+	 * Non-continuous clock only (release build): the D-PHY clock lane
+	 * performs a genuine LP->HS entry every frame, so CFE's automatic
+	 * FSM re-syncs on its own. No deliberate i_arstn reset pulse is
+	 * needed or supported here -- i_arstn's physical connection to the
+	 * FPGA is expected to be absent on this board class. This function
+	 * only brings up steady power.
+	 */
 	ret = clk_prepare_enable(c->xclk);
 	if (ret) {
 		dev_err(dev, "failed to enable clock: %d\n", ret);
 		return ret;
 	}
 
-	if (c->bus_flags & V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK) {
-		/*
-		 * Non-continuous clock: the D-PHY clock lane naturally
-		 * performs an LP->HS entry every frame, so CFE's automatic
-		 * FSM re-syncs on its own without any deliberate i_arstn
-		 * pulse. On this class of board i_arstn's physical
-		 * connection to the FPGA has typically been removed
-		 * entirely, so just bring up steady power.
-		 */
-		if (c->supply) {
-			ret = regulator_enable(c->supply);
-			if (ret) {
-				dev_err(dev, "failed to enable supply: %d\n", ret);
-				clk_disable_unprepare(c->xclk);
-				return ret;
-			}
+	if (c->supply) {
+		ret = regulator_enable(c->supply);
+		if (ret) {
+			dev_err(dev, "failed to enable supply: %d\n", ret);
+			clk_disable_unprepare(c->xclk);
+			return ret;
 		}
-		gpiod_set_value_cansleep(c->reset_gpio, 0);
-		return 0;
 	}
-
-	ret = canlab_reset_pulse(c);
-	if (ret) {
-		clk_disable_unprepare(c->xclk);
-		return ret;
-	}
-	c->pulse_done = true;
+	gpiod_set_value_cansleep(c->reset_gpio, 0);
 
 	return 0;
 }
@@ -377,25 +327,6 @@ static int canlab_s_stream(struct v4l2_subdev *sd, int enable)
 		if (ret < 0)
 			goto out;
 
-		if (!(c->bus_flags & V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK)) {
-			/*
-			 * Continuous clock only: if runtime PM was already
-			 * active (e.g. a previous session's reference leaked or
-			 * suspend never ran), the resume callback did not
-			 * execute and no reset pulse was generated. Force one
-			 * here so every stream start is guaranteed exactly one
-			 * i_arstn pulse regardless of runtime PM state.
-			 */
-			if (!c->pulse_done) {
-				ret = canlab_reset_pulse(c);
-				if (ret) {
-					pm_runtime_put(dev);
-					goto out;
-				}
-			}
-			c->pulse_done = false;	/* consumed by this session */
-		}
-
 		ret = canlab_start(c);
 		if (ret) {
 			pm_runtime_put(dev);
@@ -519,8 +450,11 @@ static int canlab_parse_dt(struct canlab *c)
 	if (c->num_data_lanes != CANLAB_NUM_DATA_LANES)
 		dev_warn(dev, "expected %u data lanes, DT provides %u\n",
 			 CANLAB_NUM_DATA_LANES, c->num_data_lanes);
-	if (c->bus_flags & V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK)
-		dev_warn(dev, "'clock-noncontinuous' set; CANLAB expects CONTINUOUS clock\n");
+	if (!(c->bus_flags & V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK))
+		dev_warn(dev,
+			 "'clock-noncontinuous' not set; this release driver has no\n"
+			 "i_arstn reset-pulse fallback and REQUIRES non-continuous\n"
+			 "clock -- add 'clock-noncontinuous;' to the sensor endpoint.\n");
 
 	if (bus_cfg.nr_of_link_frequencies)
 		c->link_freq = bus_cfg.link_frequencies[0];
