@@ -226,6 +226,27 @@ static int canlab_power_on(struct device *dev)
 		return ret;
 	}
 
+	if (c->bus_flags & V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK) {
+		/*
+		 * Non-continuous clock: the D-PHY clock lane naturally
+		 * performs an LP->HS entry every frame, so CFE's automatic
+		 * FSM re-syncs on its own without any deliberate i_arstn
+		 * pulse. On this class of board i_arstn's physical
+		 * connection to the FPGA has typically been removed
+		 * entirely, so just bring up steady power.
+		 */
+		if (c->supply) {
+			ret = regulator_enable(c->supply);
+			if (ret) {
+				dev_err(dev, "failed to enable supply: %d\n", ret);
+				clk_disable_unprepare(c->xclk);
+				return ret;
+			}
+		}
+		gpiod_set_value_cansleep(c->reset_gpio, 0);
+		return 0;
+	}
+
 	ret = canlab_reset_pulse(c);
 	if (ret) {
 		clk_disable_unprepare(c->xclk);
@@ -356,21 +377,24 @@ static int canlab_s_stream(struct v4l2_subdev *sd, int enable)
 		if (ret < 0)
 			goto out;
 
-		/*
-		 * If runtime PM was already active (e.g. a previous session's
-		 * reference leaked or suspend never ran), the resume callback
-		 * did not execute and no reset pulse was generated. Force one
-		 * here so every stream start is guaranteed exactly one
-		 * i_arstn pulse regardless of runtime PM state.
-		 */
-		if (!c->pulse_done) {
-			ret = canlab_reset_pulse(c);
-			if (ret) {
-				pm_runtime_put(dev);
-				goto out;
+		if (!(c->bus_flags & V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK)) {
+			/*
+			 * Continuous clock only: if runtime PM was already
+			 * active (e.g. a previous session's reference leaked or
+			 * suspend never ran), the resume callback did not
+			 * execute and no reset pulse was generated. Force one
+			 * here so every stream start is guaranteed exactly one
+			 * i_arstn pulse regardless of runtime PM state.
+			 */
+			if (!c->pulse_done) {
+				ret = canlab_reset_pulse(c);
+				if (ret) {
+					pm_runtime_put(dev);
+					goto out;
+				}
 			}
+			c->pulse_done = false;	/* consumed by this session */
 		}
-		c->pulse_done = false;	/* consumed by this session */
 
 		ret = canlab_start(c);
 		if (ret) {
